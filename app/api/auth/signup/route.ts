@@ -88,9 +88,8 @@ export async function POST(request: NextRequest) {
     await storeTOTPSecret(user.id, totpSecret, masterKey);
     await storeBackupCodes(user.id, backupCodes, masterKey);
 
-    const pendingSetupId = crypto.randomBytes(32).toString("hex");
-    createPendingSession(
-      pendingSetupId,
+    const pendingSetupId = createPendingSession(
+      crypto.randomBytes(32).toString("hex"),
       "setup",
       user.id,
       masterKey,

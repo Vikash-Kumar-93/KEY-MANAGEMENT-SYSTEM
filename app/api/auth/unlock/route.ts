@@ -123,9 +123,8 @@ export async function POST(request: NextRequest) {
       device = await registerDevice(user.id, deviceName, deviceFingerprintHash, true);
     }
 
-    const sessionId = crypto.randomBytes(32).toString("hex");
-    createSession(
-      sessionId,
+    const sessionId = createSession(
+      crypto.randomBytes(32).toString("hex"),
       userId,
       Buffer.from(pending.masterKey),
       pending.masterKeyHash,

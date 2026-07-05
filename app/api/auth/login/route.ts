@@ -71,9 +71,8 @@ export async function POST(request: NextRequest) {
       !!device && isDeviceTrustedToday(device.last_otp_verified_at);
 
     if (trustedToday && device) {
-      const sessionId = crypto.randomBytes(32).toString("hex");
-      createSession(
-        sessionId,
+      const sessionId = createSession(
+        crypto.randomBytes(32).toString("hex"),
         user.id,
         derivedMasterKey,
         derivedMasterKey.toString("base64"),
@@ -102,9 +101,8 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    const pendingUnlockId = crypto.randomBytes(32).toString("hex");
-    createPendingSession(
-      pendingUnlockId,
+    const pendingUnlockId = createPendingSession(
+      crypto.randomBytes(32).toString("hex"),
       "unlock",
       user.id,
       derivedMasterKey,

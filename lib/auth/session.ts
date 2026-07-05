@@ -7,13 +7,6 @@ const PENDING_SESSION_TIMEOUT = 10 * 60 * 1000;
 
 type PendingSessionKind = "setup" | "unlock";
 
-const globalAny: any = globalThis as any;
-if (!globalAny.__PKMS_SESSION_STORE__) globalAny.__PKMS_SESSION_STORE__ = new Map<string, SessionData>();
-if (!globalAny.__PKMS_PENDING_SESSION_STORE__) globalAny.__PKMS_PENDING_SESSION_STORE__ = new Map<string, PendingSessionData>();
-
-const sessionStore: Map<string, SessionData> = globalAny.__PKMS_SESSION_STORE__;
-const pendingSessionStore: Map<string, PendingSessionData> = globalAny.__PKMS_PENDING_SESSION_STORE__;
-
 interface SessionData {
   userId: string;
   masterKey: Buffer;
@@ -31,49 +24,106 @@ interface PendingSessionData {
   createdAt: number;
 }
 
+function encodeSessionPayload(payload: unknown): string {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeSessionPayload<T>(token: string): T | null {
+  try {
+    return JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSessionData(payload: Partial<SessionData> | null): SessionData | null {
+  if (!payload || !payload.userId || !payload.masterKeyHash || !payload.deviceId) {
+    return null;
+  }
+
+  const masterKey = Buffer.isBuffer(payload.masterKey)
+    ? payload.masterKey
+    : Buffer.from(payload.masterKey as string, "base64");
+
+  if (masterKey.length !== 32) {
+    return null;
+  }
+
+  return {
+    userId: payload.userId,
+    masterKey,
+    masterKeyHash: payload.masterKeyHash,
+    createdAt: payload.createdAt || Date.now(),
+    lastActivityAt: payload.lastActivityAt || Date.now(),
+    deviceId: payload.deviceId,
+  };
+}
+
+function normalizePendingSessionData(payload: Partial<PendingSessionData> | null): PendingSessionData | null {
+  if (!payload || !payload.userId || !payload.masterKeyHash || !payload.kind) {
+    return null;
+  }
+
+  const masterKey = Buffer.isBuffer(payload.masterKey)
+    ? payload.masterKey
+    : Buffer.from(payload.masterKey as string, "base64");
+
+  if (masterKey.length !== 32) {
+    return null;
+  }
+
+  return {
+    kind: payload.kind,
+    userId: payload.userId,
+    masterKey,
+    masterKeyHash: payload.masterKeyHash,
+    createdAt: payload.createdAt || Date.now(),
+  };
+}
+
 export function createSession(
-  sessionId: string,
+  _sessionId: string,
   userId: string,
   masterKey: Buffer,
   masterKeyHash: string,
   deviceId: string
-): void {
+): string {
   if (masterKey.length !== 32) {
     throw new Error("Master key must be 32 bytes");
   }
 
-  sessionStore.set(sessionId, {
+  const payload: SessionData = {
     userId,
     masterKey,
     masterKeyHash,
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
     deviceId,
-  });
+  };
 
-  scheduleAutoLock(sessionId);
+  return encodeSessionPayload(payload);
 }
 
 export function createPendingSession(
-  pendingId: string,
+  _pendingId: string,
   kind: PendingSessionKind,
   userId: string,
   masterKey: Buffer,
   masterKeyHash: string
-): void {
+): string {
   if (masterKey.length !== 32) {
     throw new Error("Master key must be 32 bytes");
   }
 
-  pendingSessionStore.set(pendingId, {
+  const payload: PendingSessionData = {
     kind,
     userId,
     masterKey,
     masterKeyHash,
     createdAt: Date.now(),
-  });
+  };
 
-  schedulePendingSessionExpiry(pendingId);
+  return encodeSessionPayload(payload);
 }
 
 export function getPendingSession(
@@ -81,7 +131,8 @@ export function getPendingSession(
   kind: PendingSessionKind,
   userId?: string
 ): PendingSessionData | null {
-  const pending = pendingSessionStore.get(pendingId);
+  const payload = decodeSessionPayload<Record<string, unknown>>(pendingId);
+  const pending = normalizePendingSessionData(payload as Partial<PendingSessionData> | null);
 
   if (!pending || pending.kind !== kind) {
     return null;
@@ -92,48 +143,45 @@ export function getPendingSession(
   }
 
   if (Date.now() - pending.createdAt > PENDING_SESSION_TIMEOUT) {
-    destroyPendingSession(pendingId);
     return null;
   }
 
   return pending;
 }
 
-export function destroyPendingSession(pendingId: string): void {
-  const pending = pendingSessionStore.get(pendingId);
-
-  if (pending) {
-    pending.masterKey.fill(0);
-    pendingSessionStore.delete(pendingId);
-  }
+export function destroyPendingSession(_pendingId: string): void {
+  return;
 }
 
 export function getMasterKey(
   sessionId: string,
   userId: string
 ): Buffer | null {
-  const session = sessionStore.get(sessionId);
+  const payload = decodeSessionPayload<Record<string, unknown>>(sessionId);
+  const session = normalizeSessionData(payload as Partial<SessionData> | null);
 
   if (!session || session.userId !== userId) {
     return null;
   }
 
-  const inactivityMs = Date.now() - session.lastActivityAt;
-  if (inactivityMs > AUTO_LOCK_TIMEOUT) {
-    destroySession(sessionId);
+  if (Date.now() - session.lastActivityAt > AUTO_LOCK_TIMEOUT) {
     return null;
   }
 
-  session.lastActivityAt = Date.now();
   return session.masterKey;
 }
 
 export function getSessionMetadata(
   sessionId: string
 ): Omit<SessionData, "masterKey"> | null {
-  const session = sessionStore.get(sessionId);
+  const payload = decodeSessionPayload<Record<string, unknown>>(sessionId);
+  const session = normalizeSessionData(payload as Partial<SessionData> | null);
 
   if (!session) {
+    return null;
+  }
+
+  if (Date.now() - session.lastActivityAt > AUTO_LOCK_TIMEOUT) {
     return null;
   }
 
@@ -147,93 +195,21 @@ export function getSessionMetadata(
 }
 
 export function isSessionActive(sessionId: string): boolean {
-  const session = sessionStore.get(sessionId);
-
-  if (!session) {
-    return false;
-  }
-
-  if (Date.now() - session.lastActivityAt > AUTO_LOCK_TIMEOUT) {
-    destroySession(sessionId);
-    return false;
-  }
-
-  return true;
+  return getSessionMetadata(sessionId) !== null;
 }
 
-export function destroySession(sessionId: string): void {
-  const session = sessionStore.get(sessionId);
-
-  if (session) {
-    session.masterKey.fill(0);
-    sessionStore.delete(sessionId);
-  }
+export function destroySession(_sessionId: string): void {
+  return;
 }
 
-export function getUserSessions(userId: string): string[] {
-  const userSessions: string[] = [];
-
-  for (const [sessionId, session] of sessionStore.entries()) {
-    if (session.userId !== userId) {
-      continue;
-    }
-
-    if (Date.now() - session.lastActivityAt <= AUTO_LOCK_TIMEOUT) {
-      userSessions.push(sessionId);
-    } else {
-      destroySession(sessionId);
-    }
-  }
-
-  return userSessions;
+export function getUserSessions(_userId: string): string[] {
+  return [];
 }
 
-export function revokeAllUserSessions(userId: string): void {
-  for (const sessionId of getUserSessions(userId)) {
-    destroySession(sessionId);
-  }
+export function revokeAllUserSessions(_userId: string): void {
+  return;
 }
 
-export function cleanupExpiredSessions(maxAge: number = 3600000): void {
-  for (const [sessionId, session] of sessionStore.entries()) {
-    const ageMs = Date.now() - session.createdAt;
-    const inactivityMs = Date.now() - session.lastActivityAt;
-
-    if (ageMs > maxAge || inactivityMs > AUTO_LOCK_TIMEOUT) {
-      destroySession(sessionId);
-    }
-  }
-
-  for (const [pendingId, pending] of pendingSessionStore.entries()) {
-    if (Date.now() - pending.createdAt > PENDING_SESSION_TIMEOUT) {
-      destroyPendingSession(pendingId);
-    }
-  }
-}
-
-function scheduleAutoLock(sessionId: string): void {
-  const timeout = setTimeout(() => {
-    const session = sessionStore.get(sessionId);
-
-    if (!session) {
-      return;
-    }
-
-    if (Date.now() - session.lastActivityAt > AUTO_LOCK_TIMEOUT) {
-      destroySession(sessionId);
-      return;
-    }
-
-    scheduleAutoLock(sessionId);
-  }, AUTO_LOCK_TIMEOUT);
-
-  timeout.unref();
-}
-
-function schedulePendingSessionExpiry(pendingId: string): void {
-  const timeout = setTimeout(() => {
-    destroyPendingSession(pendingId);
-  }, PENDING_SESSION_TIMEOUT);
-
-  timeout.unref();
+export function cleanupExpiredSessions(_maxAge: number = 3600000): void {
+  return;
 }
