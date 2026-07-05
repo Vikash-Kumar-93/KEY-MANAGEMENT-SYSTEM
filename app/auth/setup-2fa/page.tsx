@@ -76,6 +76,7 @@ export default function Setup2FAPage() {
 
       const response = await fetch("/api/auth/setup-2fa/confirm", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,

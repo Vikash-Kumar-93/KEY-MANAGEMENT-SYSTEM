@@ -82,9 +82,11 @@ export function authMiddleware(request: NextRequest) {
   const publicRoutes = [
     "/auth/login",
     "/auth/signup",
+    "/auth/setup-2fa",
     "/auth/verify-otp",
     "/api/auth/login",
     "/api/auth/signup",
+    "/api/auth/setup-2fa/confirm",
     "/api/auth/unlock",
     "/api/auth/session",
     "/api/auth/logout",

@@ -24,6 +24,14 @@ interface PendingSessionData {
   createdAt: number;
 }
 
+type SessionStoragePayload = Omit<SessionData, "masterKey"> & {
+  masterKey: string;
+};
+
+type PendingSessionStoragePayload = Omit<PendingSessionData, "masterKey"> & {
+  masterKey: string;
+};
+
 function encodeSessionPayload(payload: unknown): string {
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
@@ -92,9 +100,9 @@ export function createSession(
     throw new Error("Master key must be 32 bytes");
   }
 
-  const payload: SessionData = {
+  const payload: SessionStoragePayload = {
     userId,
-    masterKey,
+    masterKey: masterKey.toString("base64"),
     masterKeyHash,
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
@@ -115,10 +123,10 @@ export function createPendingSession(
     throw new Error("Master key must be 32 bytes");
   }
 
-  const payload: PendingSessionData = {
+  const payload: PendingSessionStoragePayload = {
     kind,
     userId,
-    masterKey,
+    masterKey: masterKey.toString("base64"),
     masterKeyHash,
     createdAt: Date.now(),
   };
