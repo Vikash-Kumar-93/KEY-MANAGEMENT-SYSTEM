@@ -43,7 +43,7 @@ function normalizeSessionData(payload: Partial<SessionData> | null): SessionData
 
   const masterKey = Buffer.isBuffer(payload.masterKey)
     ? payload.masterKey
-    : Buffer.from(payload.masterKey as string, "base64");
+    : Buffer.from(typeof payload.masterKey === "string" ? payload.masterKey : "", "base64");
 
   if (masterKey.length !== 32) {
     return null;
@@ -66,7 +66,7 @@ function normalizePendingSessionData(payload: Partial<PendingSessionData> | null
 
   const masterKey = Buffer.isBuffer(payload.masterKey)
     ? payload.masterKey
-    : Buffer.from(payload.masterKey as string, "base64");
+    : Buffer.from(typeof payload.masterKey === "string" ? payload.masterKey : "", "base64");
 
   if (masterKey.length !== 32) {
     return null;
